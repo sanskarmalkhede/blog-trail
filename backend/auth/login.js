@@ -1,4 +1,8 @@
-router.post('/login', async (req, res) => {
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const pool = require('../db');
+
+const login = async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required.' });
@@ -34,4 +38,6 @@ router.post('/login', async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
-});
+};
+
+module.exports = { login }; 

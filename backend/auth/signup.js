@@ -1,11 +1,8 @@
-// backend/server.js (or routes/auth.js)
 const bcrypt = require('bcrypt');
-const jwt    = require('jsonwebtoken');
-const pool   = require('./db');
-const express = require('express');
-const router = express.Router();
+const jwt = require('jsonwebtoken');
+const pool = require('../db');
 
-router.post('/sign-up', async (req, res) => {
+const signup = async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Name, email, and password are required.' });
@@ -37,4 +34,6 @@ router.post('/sign-up', async (req, res) => {
     console.error(err);
     res.status(400).json({ error: err.message });
   }
-});
+};
+
+module.exports = { signup }; 

@@ -1,9 +1,11 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const pool = require('./db');
 const requireAuth = require('./middleware/auth.middleware');
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 // Initialize tables
@@ -52,6 +54,10 @@ async function initDb() {
   }
 }
 
+// ---- AUTH ROUTES ----
+const authRouter = require('./auth');
+app.use('/auth', authRouter);
+
 // ---- ROUTES ----
 
 // Users (signup)
@@ -68,13 +74,34 @@ app.post('/users', async (req, res) => {
   }
 });
 
-// Posts
+// Get current user info
+app.get('/auth/me', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, email, created_at FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Posts with author info
 app.get('/posts', async (_, res) => {
-  const { rows } = await pool.query(
-    'SELECT * FROM posts ORDER BY created_at DESC'
-  );
+  const { rows } = await pool.query(`
+    SELECT p.*, u.name as author_name, u.email as author_email,
+           (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) as likes_count
+    FROM posts p
+    JOIN users u ON p.author_id = u.id
+    ORDER BY p.created_at DESC
+  `);
   res.json(rows);
 });
+
 app.post('/posts', requireAuth, async (req, res) => {
   const { title, content, image_url } = req.body;
   const author_id = req.user.id;
@@ -98,7 +125,7 @@ app.post('/posts', requireAuth, async (req, res) => {
 app.put('/posts/:id', requireAuth, async (req, res) => {
   const postId = req.params.id;
 
-  // 1) Fetch the post’s author
+  // 1) Fetch the post's author
   const { rows } = await pool.query(
     'SELECT author_id FROM posts WHERE id = $1',
     [postId]
@@ -126,10 +153,11 @@ app.put('/posts/:id', requireAuth, async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
+
 app.delete('/posts/:id', requireAuth, async (req, res) => {
   const postId = req.params.id; 
 
-  // 1) Fetch the post’s author
+  // 1) Fetch the post's author
   const { rows } = await pool.query(
     'SELECT author_id FROM posts WHERE id = $1',
     [postId]
@@ -147,24 +175,39 @@ app.delete('/posts/:id', requireAuth, async (req, res) => {
 });
 
 // Comments
-app.post('/posts/:id/comments', async (req, res) => {
+app.post('/posts/:id/comments', requireAuth, async (req, res) => {
   const post_id = req.params.id;
-  const { author_id, content } = req.body;
+  const { content } = req.body;
+  const author_id = req.user.id;
   const { rows } = await pool.query(
     'INSERT INTO comments(post_id,author_id,content) VALUES($1,$2,$3) RETURNING *',
     [post_id, author_id, content]
   );
   res.status(201).json(rows[0]);
 });
-app.delete('/comments/:id', async (req, res) => {
-  await pool.query('DELETE FROM comments WHERE id = $1', [req.params.id]);
+
+app.delete('/comments/:id', requireAuth, async (req, res) => {
+  const commentId = req.params.id;
+  
+  // Check if user owns the comment
+  const { rows } = await pool.query(
+    'SELECT author_id FROM comments WHERE id = $1',
+    [commentId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Comment not found' });
+  
+  if (rows[0].author_id !== req.user.id) {
+    return res.status(403).json({ error: 'You may only delete your own comments' });
+  }
+  
+  await pool.query('DELETE FROM comments WHERE id = $1', [commentId]);
   res.status(204).send();
 });
 
 // Likes
-app.post('/posts/:id/like', async (req, res) => {
+app.post('/posts/:id/like', requireAuth, async (req, res) => {
   const post_id = req.params.id;
-  const { user_id } = req.body;
+  const user_id = req.user.id;
   try {
     const { rows } = await pool.query(
       'INSERT INTO likes(post_id,user_id) VALUES($1,$2) RETURNING *',
@@ -175,18 +218,16 @@ app.post('/posts/:id/like', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
-app.post('/posts/:id/unlike', async (req, res) => {
+
+app.post('/posts/:id/unlike', requireAuth, async (req, res) => {
   const post_id = req.params.id;
-  const { user_id } = req.body;
+  const user_id = req.user.id;
   await pool.query('DELETE FROM likes WHERE post_id = $1 AND user_id = $2', [
     post_id,
     user_id,
   ]);
   res.status(204).send();
 });
-
-const authRouter = require('./auth/sign-up');
-app.use('/sign-up', authRouter);
 
 // Start server
 const PORT = process.env.PORT;
