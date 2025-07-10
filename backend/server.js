@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const pool = require('./db');
+const requireAuth = require('./middleware/auth.middleware');
 
 const app = express();
 app.use(express.json());
@@ -74,26 +75,47 @@ app.get('/posts', async (_, res) => {
   );
   res.json(rows);
 });
-app.post('/posts', async (req, res) => {
-  const { author_id, title, content, image_url } = req.body;
+app.post('/posts', requireAuth, async (req, res) => {
+  const { title, content, image_url } = req.body;
+  const author_id = req.user.id;
   try {
-    const { rows } = await pool.query(
-      `INSERT INTO posts(author_id,title,content,image_url)
-       VALUES($1,$2,$3,$4) RETURNING *`,
-      [author_id, title, content, image_url]
-    );
-    res.status(201).json(rows[0]);
+    if (author_id === undefined) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    else{
+      const { rows } = await pool.query(
+        `INSERT INTO posts(author_id,title,content,image_url)
+         VALUES($1,$2,$3,$4) RETURNING *`,
+        [author_id, title, content, image_url]
+      );
+      res.status(201).json(rows[0]);
+    }
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
-app.put('/posts/:id', async (req, res) => {
-  const { id } = req.params;
+
+app.put('/posts/:id', requireAuth, async (req, res) => {
+  const postId = req.params.id;
+
+  // 1) Fetch the post’s author
+  const { rows } = await pool.query(
+    'SELECT author_id FROM posts WHERE id = $1',
+    [postId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Post not found' });
+
+  // 2) Check ownership
+  if (rows[0].author_id !== req.user.id) {
+    return res.status(403).json({ error: 'You may only edit your own posts' });
+  }
+
+  // 3) Perform update
   const updates = req.body;
   const setClause = Object.keys(updates)
     .map((k, i) => `${k} = $${i + 1}`)
     .join(', ');
-  const values = [...Object.values(updates), id];
+  const values = [...Object.values(updates), postId];
   try {
     const { rows } = await pool.query(
       `UPDATE posts SET ${setClause} WHERE id = $${values.length} RETURNING *`,
@@ -104,8 +126,23 @@ app.put('/posts/:id', async (req, res) => {
     res.status(400).json({ error: e.message });
   }
 });
-app.delete('/posts/:id', async (req, res) => {
-  await pool.query('DELETE FROM posts WHERE id = $1', [req.params.id]);
+app.delete('/posts/:id', requireAuth, async (req, res) => {
+  const postId = req.params.id; 
+
+  // 1) Fetch the post’s author
+  const { rows } = await pool.query(
+    'SELECT author_id FROM posts WHERE id = $1',
+    [postId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Post not found' });
+
+  // 2) Check ownership
+  if (rows[0].author_id !== req.user.id) {
+    return res.status(403).json({ error: 'You may only delete your own posts' });
+  }
+
+  // 3) Perform delete
+  await pool.query('DELETE FROM posts WHERE id = $1', [postId]);
   res.status(204).send();
 });
 
