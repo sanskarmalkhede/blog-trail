@@ -12,6 +12,7 @@ async function initDb() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
         email TEXT     NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT now()
@@ -54,11 +55,11 @@ async function initDb() {
 
 // Users (signup)
 app.post('/users', async (req, res) => {
-  const { email, password_hash } = req.body;
+  const { name, email, password_hash } = req.body;
   try {
     const { rows } = await pool.query(
-      'INSERT INTO users(email, password_hash) VALUES($1,$2) RETURNING *',
-      [email, password_hash]
+      'INSERT INTO users(name, email, password_hash) VALUES($1,$2,$3) RETURNING *',
+      [name, email, password_hash]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -146,6 +147,9 @@ app.post('/posts/:id/unlike', async (req, res) => {
   ]);
   res.status(204).send();
 });
+
+const authRouter = require('./auth/sign-up');
+app.use('/sign-up', authRouter);
 
 // Start server
 const PORT = process.env.PORT;
