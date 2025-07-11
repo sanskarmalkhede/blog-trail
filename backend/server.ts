@@ -1,0 +1,329 @@
+import dotenv from 'dotenv';
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import pool from './db';
+import requireAuth from './middleware/auth.middleware';
+
+dotenv.config();
+
+// Extend Request interface to include user property
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: number;
+        email: string;
+      };
+    }
+  }
+}
+
+// Type definitions
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  password_hash: string;
+  created_at: string;
+}
+
+interface Post {
+  id: number;
+  author_id: number;
+  title: string;
+  content: string;
+  image_url?: string;
+  created_at: string;
+}
+
+interface PostWithAuthor extends Post {
+  author_name: string;
+  author_email: string;
+  likes_count: number;
+}
+
+interface Comment {
+  id: number;
+  post_id: number;
+  author_id: number;
+  content: string;
+  created_at: string;
+}
+
+interface Like {
+  id: number;
+  post_id: number;
+  user_id: number;
+  created_at: string;
+}
+
+const app = express();
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json());
+
+// Initialize tables
+async function initDb(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT     NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS posts (
+        id SERIAL PRIMARY KEY,
+        author_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT     NOT NULL,
+        content TEXT   NOT NULL,
+        image_url TEXT,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
+      CREATE TABLE IF NOT EXISTS comments (
+        id SERIAL PRIMARY KEY,
+        post_id   INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        author_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        content   TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id);
+      CREATE TABLE IF NOT EXISTS likes (
+        id SERIAL PRIMARY KEY,
+        post_id   INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        user_id   INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (post_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_likes_post_id ON likes(post_id);
+    `);
+    console.log('Tables already exists');
+  } catch (err) {
+    console.error('Error initializing database:', err);
+  } finally {
+    client.release();
+  }
+}
+
+// ---- AUTH ROUTES ----
+import authRouter from './auth';
+app.use('/auth', authRouter);
+
+// ---- ROUTES ----
+
+// Users (signup)
+app.post('/users', async (req: Request, res: Response): Promise<void> => {
+  const { name, email, password_hash } = req.body;
+  try {
+    const { rows } = await pool.query<User>(
+      'INSERT INTO users(name, email, password_hash) VALUES($1,$2,$3) RETURNING *',
+      [name, email, password_hash]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Get current user info
+app.get('/auth/me', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { rows } = await pool.query<User>(
+      'SELECT id, name, email, created_at FROM users WHERE id = $1',
+      [req.user!.id]
+    );
+    if (!rows.length) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    res.json(rows[0]);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Posts with author info
+app.get('/posts', async (_: Request, res: Response): Promise<void> => {
+  try {
+    const { rows } = await pool.query<PostWithAuthor>(`
+      SELECT p.*, u.name as author_name, u.email as author_email,
+             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) as likes_count
+      FROM posts p
+      JOIN users u ON p.author_id = u.id
+      ORDER BY p.created_at DESC
+    `);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/posts', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { title, content, image_url } = req.body;
+  const author_id = req.user!.id;
+  try {
+    if (author_id === undefined) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const { rows } = await pool.query<Post>(
+      `INSERT INTO posts(author_id,title,content,image_url)
+       VALUES($1,$2,$3,$4) RETURNING *`,
+      [author_id, title, content, image_url]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.put('/posts/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const postId = req.params.id;
+
+  try {
+    // 1) Fetch the post's author
+    const { rows } = await pool.query<{ author_id: number }>(
+      'SELECT author_id FROM posts WHERE id = $1',
+      [postId]
+    );
+    if (!rows.length) {
+      res.status(404).json({ error: 'Post not found' });
+      return;
+    }
+
+    // 2) Check ownership
+    if (rows[0].author_id !== req.user!.id) {
+      res.status(403).json({ error: 'You may only edit your own posts' });
+      return;
+    }
+
+    // 3) Perform update
+    const updates = req.body;
+    const setClause = Object.keys(updates)
+      .map((k, i) => `${k} = $${i + 1}`)
+      .join(', ');
+    const values = [...Object.values(updates), postId];
+    
+    const { rows: updatedRows } = await pool.query<Post>(
+      `UPDATE posts SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(updatedRows[0]);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.delete('/posts/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const postId = req.params.id; 
+
+  try {
+    // 1) Fetch the post's author
+    const { rows } = await pool.query<{ author_id: number }>(
+      'SELECT author_id FROM posts WHERE id = $1',
+      [postId]
+    );
+    if (!rows.length) {
+      res.status(404).json({ error: 'Post not found' });
+      return;
+    }
+
+    // 2) Check ownership
+    if (rows[0].author_id !== req.user!.id) {
+      res.status(403).json({ error: 'You may only delete your own posts' });
+      return;
+    }
+
+    // 3) Perform delete
+    await pool.query('DELETE FROM posts WHERE id = $1', [postId]);
+    res.status(204).send();
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Comments
+app.post('/posts/:id/comments', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const post_id = req.params.id;
+  const { content } = req.body;
+  const author_id = req.user!.id;
+  try {
+    const { rows } = await pool.query<Comment>(
+      'INSERT INTO comments(post_id,author_id,content) VALUES($1,$2,$3) RETURNING *',
+      [post_id, author_id, content]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/comments/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const commentId = req.params.id;
+  
+  try {
+    // Check if user owns the comment
+    const { rows } = await pool.query<{ author_id: number }>(
+      'SELECT author_id FROM comments WHERE id = $1',
+      [commentId]
+    );
+    if (!rows.length) {
+      res.status(404).json({ error: 'Comment not found' });
+      return;
+    }
+    
+    if (rows[0].author_id !== req.user!.id) {
+      res.status(403).json({ error: 'You may only delete your own comments' });
+      return;
+    }
+    
+    await pool.query('DELETE FROM comments WHERE id = $1', [commentId]);
+    res.status(204).send();
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Likes
+app.post('/posts/:id/like', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const post_id = req.params.id;
+  const user_id = req.user!.id;
+  try {
+    const { rows } = await pool.query<Like>(
+      'INSERT INTO likes(post_id,user_id) VALUES($1,$2) RETURNING *',
+      [post_id, user_id]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/posts/:id/unlike', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const post_id = req.params.id;
+  const user_id = req.user!.id;
+  try {
+    await pool.query('DELETE FROM likes WHERE post_id = $1 AND user_id = $2', [
+      post_id,
+      user_id,
+    ]);
+    res.status(204).send();
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+initDb().then(() => {
+  app.listen(PORT, () =>
+    console.log(`Server started at http://localhost:${PORT}`)
+  );
+}); 
