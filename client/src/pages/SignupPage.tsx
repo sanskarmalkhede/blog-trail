@@ -1,0 +1,154 @@
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Button } from "../components/ui/button";
+import { useSignupMutation } from "../store/api";
+import { useAppDispatch } from "../hooks/useTypedHooks";
+import { setCredentials } from "../store/authSlice";
+import { Link } from "react-router-dom";
+import { Mail, Lock, User, UserPlus } from "lucide-react";
+
+const schema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+function SignupPage() {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema) });
+  const [signup, { isLoading, error }] = useSignupMutation();
+  const dispatch = useAppDispatch();
+
+  const onSubmit = async (data: z.infer<typeof schema>) => {
+    try {
+      const res = await signup(data).unwrap();
+      dispatch(setCredentials(res));
+    } catch (e) {
+      // Error is handled by RTK Query
+    }
+  };
+
+  return (
+    <div className="flex items-start justify-center pt-16 pb-8">
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+            Join BlogTrail
+          </h1>
+          <p className="text-muted-foreground mt-2">
+            Create your account to start blogging
+          </p>
+        </div>
+
+        {/* Signup Card */}
+        <div className="bg-card rounded-2xl p-8 elevation-3 animate-fade-in">
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 text-destructive text-sm p-4 rounded-xl mb-6 elevation-1">
+              Failed to create account. Please try again.
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            {/* Name Field */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Full Name
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Enter your full name"
+                  className="w-full pl-10 pr-4 py-3 border border-input rounded-xl bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all elevation-1 focus:elevation-2"
+                  {...register("name")}
+                />
+              </div>
+              {errors.name && (
+                <p className="text-xs text-destructive mt-1">
+                  {errors.name.message}
+                </p>
+              )}
+            </div>
+
+            {/* Email Field */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  className="w-full pl-10 pr-4 py-3 border border-input rounded-xl bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all elevation-1 focus:elevation-2"
+                  {...register("email")}
+                />
+              </div>
+              {errors.email && (
+                <p className="text-xs text-destructive mt-1">
+                  {errors.email.message}
+                </p>
+              )}
+            </div>
+
+            {/* Password Field */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="password"
+                  placeholder="Create a password"
+                  className="w-full pl-10 pr-4 py-3 border border-input rounded-xl bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all elevation-1 focus:elevation-2"
+                  {...register("password")}
+                />
+              </div>
+              {errors.password && (
+                <p className="text-xs text-destructive mt-1">
+                  {errors.password.message}
+                </p>
+              )}
+            </div>
+
+            {/* Submit Button */}
+            <Button 
+              disabled={isLoading} 
+              className="w-full py-3 rounded-xl flex items-center justify-center gap-2 btn-material elevation-2 hover:elevation-3"
+            >
+              {isLoading ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              ) : (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Create Account
+                </>
+              )}
+            </Button>
+          </form>
+
+          {/* Login Link */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link 
+                to="/login" 
+                className="font-medium text-primary hover:underline"
+              >
+                Sign in
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default SignupPage; 
