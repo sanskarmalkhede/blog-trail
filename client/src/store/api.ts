@@ -16,6 +16,17 @@ export interface Post {
   author_name: string;
   author_email: string;
   likes_count: number;
+  is_liked?: boolean;
+}
+
+export interface Comment {
+  id: number;
+  post_id: number;
+  author_id: number;
+  content: string;
+  created_at: string;
+  author_name: string;
+  author_email: string;
 }
 
 export const blogApi = createApi({
@@ -30,7 +41,7 @@ export const blogApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ["Post", "Auth"],
+  tagTypes: ["Post", "Auth", "Comment"],
   endpoints: (builder) => ({
     signup: builder.mutation<{ user: User; token: string }, { name: string; email: string; password: string }>({
       query: (body) => ({ url: "/auth/signup", method: "POST", body }),
@@ -67,13 +78,17 @@ export const blogApi = createApi({
       query: ({ id }) => ({ url: `/posts/${id}/unlike`, method: "POST" }),
       invalidatesTags: ["Post"],
     }),
-    addComment: builder.mutation<{ id: number; post_id: number; content: string }, { postId: number; content: string }>({
-      query: ({ postId, content }) => ({ url: `/posts/${postId}/comments`, method: "POST", body: { content } }),
-      invalidatesTags: ["Post"],
+    getComments: builder.query<Comment[], number>({
+      query: (postId) => `/posts/${postId}/comments`,
+      providesTags: (_, __, postId) => [{ type: 'Comment', id: postId }],
     }),
-    deleteComment: builder.mutation<void, { id: number }>({
+    addComment: builder.mutation<Comment, { postId: number; content: string }>({
+      query: ({ postId, content }) => ({ url: `/posts/${postId}/comments`, method: "POST", body: { content } }),
+      invalidatesTags: (_, __, { postId }) => [{ type: 'Comment', id: postId }],
+    }),
+    deleteComment: builder.mutation<void, { id: number; postId?: number }>({
       query: ({ id }) => ({ url: `/comments/${id}`, method: "DELETE" }),
-      invalidatesTags: ["Post"],
+      invalidatesTags: (_, __, { postId }) => postId ? [{ type: 'Comment', id: postId }] : [],
     }),
   }),
 });
@@ -88,6 +103,7 @@ export const {
   useDeletePostMutation,
   useLikePostMutation,
   useUnlikePostMutation,
+  useGetCommentsQuery,
   useAddCommentMutation,
   useDeleteCommentMutation,
 } = blogApi; 

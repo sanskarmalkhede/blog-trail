@@ -117,7 +117,7 @@ function AppContent() {
       <footer className="bg-card elevation-1 mt-auto">
         <div className="container mx-auto px-4 py-6">
           <div className="text-center text-sm text-muted-foreground">
-            <p>© 2024 BlogTrail. A minimal blogging platform.</p>
+            <p>© 2025 BlogTrail. A minimal blog app.</p>
           </div>
         </div>
       </footer>

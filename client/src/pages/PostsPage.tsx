@@ -8,6 +8,7 @@ import {
 import { useAppSelector } from "../hooks/useTypedHooks";
 import { Link } from "react-router-dom";
 import { Heart, Edit, Trash2, Calendar, User, Image } from "lucide-react";
+import { CommentSection } from "../components/CommentSection";
 
 function PostsPage() {
   const { data: posts, isLoading } = useGetPostsQuery();
@@ -57,7 +58,7 @@ function PostsPage() {
       <div className="space-y-6">
         {posts.map((post: any) => {
           const isOwner = post.author_id === auth.user?.id;
-          const hasLiked = false; // You might want to track this in the backend
+          // const hasLiked = false; // You might want to track this in the backend
           
           return (
                          <article 
@@ -142,7 +143,7 @@ function PostsPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() =>
-                        hasLiked || post.likes_count > 0
+                        post.is_liked
                           ? unlike({ id: post.id })
                           : like({ id: post.id })
                       }
@@ -150,7 +151,7 @@ function PostsPage() {
                     >
                       <Heart 
                         className={`h-4 w-4 ${
-                          hasLiked ? 'fill-red-500 text-red-500' : ''
+                          post.is_liked ? 'fill-red-500 text-red-500' : ''
                         }`} 
                       />
                       <span className="text-sm font-medium">
@@ -167,12 +168,15 @@ function PostsPage() {
                   )}
                 </div>
 
-                                 {post.content.length > 300 && (
-                   <Button variant="ghost" size="sm" className="btn-material rounded-xl">
-                     Read More
-                   </Button>
-                 )}
+                {post.content.length > 300 && (
+                  <Button variant="ghost" size="sm" className="btn-material rounded-xl">
+                    Read More
+                  </Button>
+                )}
               </div>
+
+              <CommentSection postId={post.id} postAuthorId={post.author_id} />
+
             </article>
           );
         })}

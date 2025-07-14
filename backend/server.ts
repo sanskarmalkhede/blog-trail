@@ -1,8 +1,8 @@
-import dotenv from 'dotenv';
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import pool from './db';
-import requireAuth from './middleware/auth.middleware';
+import dotenv from "dotenv";
+import express, { Request, Response, NextFunction } from "express";
+import cors from "cors";
+import pool from "./db";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 
@@ -57,14 +57,52 @@ interface Like {
   created_at: string;
 }
 
+interface CommentLike {
+  id: number;
+  comment_id: number;
+  user_id: number;
+  created_at: string;
+}
+
 const app = express();
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 app.use(express.json());
+
+// Middleware
+async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) {
+    res.status(401).json({ error: "No token provided" });
+    return;
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number; email: string };
+    req.user = decoded;
+    next();
+  } catch (e) {
+    res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+async function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number; email: string };
+      req.user = decoded;
+    } catch (e) {
+      // Invalid token, proceed without user
+    }
+  }
+  next();
+}
 
 // Initialize tables
 async function initDb(): Promise<void> {
@@ -103,27 +141,35 @@ async function initDb(): Promise<void> {
         UNIQUE (post_id, user_id)
       );
       CREATE INDEX IF NOT EXISTS idx_likes_post_id ON likes(post_id);
+      CREATE TABLE IF NOT EXISTS comment_likes (
+        id SERIAL PRIMARY KEY,
+        comment_id INT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (comment_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_comment_likes_comment_id ON comment_likes(comment_id);
     `);
-    console.log('Tables already exists');
+    console.log("Tables already exists");
   } catch (err) {
-    console.error('Error initializing database:', err);
+    console.error("Error initializing database:", err);
   } finally {
     client.release();
   }
 }
 
 // ---- AUTH ROUTES ----
-import authRouter from './auth';
-app.use('/auth', authRouter);
+import authRouter from "./auth";
+app.use("/auth", authRouter);
 
 // ---- ROUTES ----
 
 // Users (signup)
-app.post('/users', async (req: Request, res: Response): Promise<void> => {
+app.post("/users", async (req: Request, res: Response): Promise<void> => {
   const { name, email, password_hash } = req.body;
   try {
     const { rows } = await pool.query<User>(
-      'INSERT INTO users(name, email, password_hash) VALUES($1,$2,$3) RETURNING *',
+      "INSERT INTO users(name, email, password_hash) VALUES($1,$2,$3) RETURNING *",
       [name, email, password_hash]
     );
     res.status(201).json(rows[0]);
@@ -133,197 +179,306 @@ app.post('/users', async (req: Request, res: Response): Promise<void> => {
 });
 
 // Get current user info
-app.get('/auth/me', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { rows } = await pool.query<User>(
-      'SELECT id, name, email, created_at FROM users WHERE id = $1',
-      [req.user!.id]
-    );
-    if (!rows.length) {
-      res.status(404).json({ error: 'User not found' });
-      return;
+app.get(
+  "/auth/me",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { rows } = await pool.query<User>(
+        "SELECT id, name, email, created_at FROM users WHERE id = $1",
+        [req.user!.id]
+      );
+      if (!rows.length) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      res.json(rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
-    res.json(rows[0]);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
   }
-});
+);
 
 // Posts with author info
-app.get('/posts', async (_: Request, res: Response): Promise<void> => {
+app.get("/posts", optionalAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.id ?? 0;
   try {
-    const { rows } = await pool.query<PostWithAuthor>(`
+    const { rows } = await pool.query<PostWithAuthor & {is_liked: boolean}>(
+      `
       SELECT p.*, u.name as author_name, u.email as author_email,
-             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) as likes_count
+             (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) as likes_count,
+             CASE WHEN $1 = 0 THEN false
+                  ELSE EXISTS (SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.user_id = $1)
+             END as is_liked
       FROM posts p
       JOIN users u ON p.author_id = u.id
       ORDER BY p.created_at DESC
-    `);
+      `,
+      [userId]
+    );
     res.json(rows);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/posts', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const { title, content, image_url } = req.body;
-  const author_id = req.user!.id;
-  try {
-    if (author_id === undefined) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-    const { rows } = await pool.query<Post>(
-      `INSERT INTO posts(author_id,title,content,image_url)
+app.post(
+  "/posts",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const { title, content, image_url } = req.body;
+    const author_id = req.user!.id;
+    try {
+      if (author_id === undefined) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      const { rows } = await pool.query<Post>(
+        `INSERT INTO posts(author_id,title,content,image_url)
        VALUES($1,$2,$3,$4) RETURNING *`,
-      [author_id, title, content, image_url]
-    );
-    res.status(201).json(rows[0]);
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
+        [author_id, title, content, image_url]
+      );
+      res.status(201).json(rows[0]);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   }
-});
+);
 
-app.put('/posts/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const postId = req.params.id;
+app.put(
+  "/posts/:id",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const postId = req.params.id;
 
-  try {
-    // 1) Fetch the post's author
-    const { rows } = await pool.query<{ author_id: number }>(
-      'SELECT author_id FROM posts WHERE id = $1',
-      [postId]
-    );
-    if (!rows.length) {
-      res.status(404).json({ error: 'Post not found' });
-      return;
+    try {
+      // 1) Fetch the post's author
+      const { rows } = await pool.query<{ author_id: number }>(
+        "SELECT author_id FROM posts WHERE id = $1",
+        [postId]
+      );
+      if (!rows.length) {
+        res.status(404).json({ error: "Post not found" });
+        return;
+      }
+
+      // 2) Check ownership
+      if (rows[0].author_id !== req.user!.id) {
+        res.status(403).json({ error: "You may only edit your own posts" });
+        return;
+      }
+
+      // 3) Perform update
+      const updates = req.body;
+      const setClause = Object.keys(updates)
+        .map((k, i) => `${k} = $${i + 1}`)
+        .join(", ");
+      const values = [...Object.values(updates), postId];
+
+      const { rows: updatedRows } = await pool.query<Post>(
+        `UPDATE posts SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+        values
+      );
+      res.json(updatedRows[0]);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
-
-    // 2) Check ownership
-    if (rows[0].author_id !== req.user!.id) {
-      res.status(403).json({ error: 'You may only edit your own posts' });
-      return;
-    }
-
-    // 3) Perform update
-    const updates = req.body;
-    const setClause = Object.keys(updates)
-      .map((k, i) => `${k} = $${i + 1}`)
-      .join(', ');
-    const values = [...Object.values(updates), postId];
-    
-    const { rows: updatedRows } = await pool.query<Post>(
-      `UPDATE posts SET ${setClause} WHERE id = $${values.length} RETURNING *`,
-      values
-    );
-    res.json(updatedRows[0]);
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
   }
-});
+);
 
-app.delete('/posts/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const postId = req.params.id; 
+app.delete(
+  "/posts/:id",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const postId = req.params.id;
 
-  try {
-    // 1) Fetch the post's author
-    const { rows } = await pool.query<{ author_id: number }>(
-      'SELECT author_id FROM posts WHERE id = $1',
-      [postId]
-    );
-    if (!rows.length) {
-      res.status(404).json({ error: 'Post not found' });
-      return;
+    try {
+      // 1) Fetch the post's author
+      const { rows } = await pool.query<{ author_id: number }>(
+        "SELECT author_id FROM posts WHERE id = $1",
+        [postId]
+      );
+      if (!rows.length) {
+        res.status(404).json({ error: "Post not found" });
+        return;
+      }
+
+      // 2) Check ownership
+      if (rows[0].author_id !== req.user!.id) {
+        res.status(403).json({ error: "You may only delete your own posts" });
+        return;
+      }
+
+      // 3) Perform delete
+      await pool.query("DELETE FROM posts WHERE id = $1", [postId]);
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
-
-    // 2) Check ownership
-    if (rows[0].author_id !== req.user!.id) {
-      res.status(403).json({ error: 'You may only delete your own posts' });
-      return;
-    }
-
-    // 3) Perform delete
-    await pool.query('DELETE FROM posts WHERE id = $1', [postId]);
-    res.status(204).send();
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
   }
-});
+);
 
 // Comments
-app.post('/posts/:id/comments', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const post_id = req.params.id;
-  const { content } = req.body;
-  const author_id = req.user!.id;
-  try {
-    const { rows } = await pool.query<Comment>(
-      'INSERT INTO comments(post_id,author_id,content) VALUES($1,$2,$3) RETURNING *',
-      [post_id, author_id, content]
-    );
-    res.status(201).json(rows[0]);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+app.post(
+  "/posts/:id/comments",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const post_id = req.params.id;
+    const { content } = req.body;
+    const author_id = req.user!.id;
+    try {
+      const { rows } = await pool.query<Comment>(
+        "INSERT INTO comments(post_id,author_id,content) VALUES($1,$2,$3) RETURNING *",
+        [post_id, author_id, content]
+      );
+      res.status(201).json(rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   }
-});
+);
 
-app.delete('/comments/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const commentId = req.params.id;
-  
-  try {
-    // Check if user owns the comment
-    const { rows } = await pool.query<{ author_id: number }>(
-      'SELECT author_id FROM comments WHERE id = $1',
-      [commentId]
-    );
-    if (!rows.length) {
-      res.status(404).json({ error: 'Comment not found' });
-      return;
+app.get(
+  "/posts/:id/comments",
+  optionalAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const post_id = req.params.id;
+    const userId = req.user?.id ?? 0;
+    try {
+      const { rows } = await pool.query<Comment & {author_name: string, author_email: string, likes_count: number, is_liked: boolean}>(
+        `
+        SELECT c.*, u.name as author_name, u.email as author_email,
+               (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) as likes_count,
+               CASE WHEN $2 = 0 THEN false
+                    ELSE EXISTS (SELECT 1 FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = $2)
+               END as is_liked
+        FROM comments c
+        JOIN users u ON c.author_id = u.id
+        WHERE c.post_id = $1
+        ORDER BY c.created_at ASC
+        `,
+        [post_id, userId]
+      );
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
-    
-    if (rows[0].author_id !== req.user!.id) {
-      res.status(403).json({ error: 'You may only delete your own comments' });
-      return;
-    }
-    
-    await pool.query('DELETE FROM comments WHERE id = $1', [commentId]);
-    res.status(204).send();
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
   }
-});
+);
+
+app.delete(
+  "/comments/:id",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const commentId = req.params.id;
+
+    try {
+      // Check ownership
+      const { rows } = await pool.query<{ comment_author: number, post_author: number }>(
+        `
+        SELECT c.author_id as comment_author, p.author_id as post_author
+        FROM comments c
+        JOIN posts p ON c.post_id = p.id
+        WHERE c.id = $1
+        `,
+        [commentId]
+      );
+      if (!rows.length) {
+        res.status(404).json({ error: "Comment not found" });
+        return;
+      }
+
+      if (rows[0].comment_author !== req.user!.id && rows[0].post_author !== req.user!.id) {
+        res.status(403).json({ error: "You may only delete your own comments or comments on your own posts" });
+        return;
+      }
+
+      await pool.query("DELETE FROM comments WHERE id = $1", [commentId]);
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+);
 
 // Likes
-app.post('/posts/:id/like', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const post_id = req.params.id;
-  const user_id = req.user!.id;
-  try {
-    const { rows } = await pool.query<Like>(
-      'INSERT INTO likes(post_id,user_id) VALUES($1,$2) RETURNING *',
-      [post_id, user_id]
-    );
-    res.status(201).json(rows[0]);
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
+app.post(
+  "/posts/:id/like",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const post_id = req.params.id;
+    const user_id = req.user!.id;
+    try {
+      const { rows } = await pool.query<Like>(
+        "INSERT INTO likes(post_id,user_id) VALUES($1,$2) RETURNING *",
+        [post_id, user_id]
+      );
+      res.status(201).json(rows[0]);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   }
-});
+);
 
-app.post('/posts/:id/unlike', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const post_id = req.params.id;
-  const user_id = req.user!.id;
-  try {
-    await pool.query('DELETE FROM likes WHERE post_id = $1 AND user_id = $2', [
-      post_id,
-      user_id,
-    ]);
-    res.status(204).send();
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+app.post(
+  "/posts/:id/unlike",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const post_id = req.params.id;
+    const user_id = req.user!.id;
+    try {
+      await pool.query(
+        "DELETE FROM likes WHERE post_id = $1 AND user_id = $2",
+        [post_id, user_id]
+      );
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   }
-});
+);
+
+// Comment Likes
+app.post(
+  "/comments/:id/like",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const comment_id = req.params.id;
+    const user_id = req.user!.id;
+    try {
+      const { rows } = await pool.query<CommentLike>(
+        "INSERT INTO comment_likes(comment_id, user_id) VALUES($1, $2) RETURNING *",
+        [comment_id, user_id]
+      );
+      res.status(201).json(rows[0]);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  }
+);
+
+app.post(
+  "/comments/:id/unlike",
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const comment_id = req.params.id;
+    const user_id = req.user!.id;
+    try {
+      await pool.query(
+        "DELETE FROM comment_likes WHERE comment_id = $1 AND user_id = $2",
+        [comment_id, user_id]
+      );
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+);
 
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 initDb().then(() => {
   app.listen(PORT, () =>
     console.log(`Server started at http://localhost:${PORT}`)
   );
-}); 
+});
