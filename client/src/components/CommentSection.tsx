@@ -3,7 +3,8 @@ import { useAppSelector } from "../hooks/useTypedHooks";
 import { useAddCommentMutation, useDeleteCommentMutation, useGetCommentsQuery, type Comment } from "../store/api";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
-import { Trash2 } from "lucide-react";
+import { Trash2, Heart } from "lucide-react";
+import { useLikeCommentMutation, useUnlikeCommentMutation } from "../store/api";
 
 type CommentSectionProps = {
   postId: number;
@@ -16,6 +17,9 @@ export function CommentSection({ postId, postAuthorId }: CommentSectionProps) {
   const [addComment] = useAddCommentMutation();
   const [deleteComment] = useDeleteCommentMutation();
   const [newComment, setNewComment] = useState("");
+  const [showInput, setShowInput] = useState(false);
+  const [likeComment] = useLikeCommentMutation();
+  const [unlikeComment] = useUnlikeCommentMutation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,16 +51,35 @@ export function CommentSection({ postId, postAuthorId }: CommentSectionProps) {
                   </div>
                   <p className="text-foreground">{comment.content}</p>
                 </div>
-                {(comment.author_id === auth.user?.id || postAuthorId === auth.user?.id) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteComment({ id: comment.id, postId })}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
+                <div className="flex items-center gap-2">
+                  {auth.user && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        comment.is_liked
+                          ? unlikeComment({ id: comment.id, postId })
+                          : likeComment({ id: comment.id, postId })
+                      }
+                      className="rounded-full hover:text-red-500"
+                    >
+                      <Heart
+                        className={`h-4 w-4 ${comment.is_liked ? "fill-red-500 text-red-500 stroke-red-500" : ""}`}
+                      />
+                      <span className="ml-1 text-sm">{comment.likes_count}</span>
+                    </Button>
+                  )}
+                  {(comment.author_id === auth.user?.id || postAuthorId === auth.user?.id) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteComment({ id: comment.id, postId })}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           ))
@@ -65,15 +88,22 @@ export function CommentSection({ postId, postAuthorId }: CommentSectionProps) {
         )}
       </div>
       {auth.user ? (
-        <form onSubmit={handleSubmit} className="space-y-2">
-          <Textarea
-            placeholder="Add a comment..."
-            value={newComment}
-            onChange={(e) => setNewComment(e.target.value)}
-            className="min-h-[80px]"
-          />
-          <Button type="submit" disabled={!newComment.trim()}>Post Comment</Button>
-        </form>
+        showInput ? (
+          <form onSubmit={handleSubmit} className="space-y-2">
+            <Textarea
+              placeholder="Add a comment..."
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              className="min-h-[80px]"
+            />
+            <div className="flex gap-2">
+              <Button type="submit" disabled={!newComment.trim()}>Post Comment</Button>
+              <Button type="button" variant="ghost" onClick={() => setShowInput(false)}>Cancel</Button>
+            </div>
+          </form>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setShowInput(true)}>Write a comment</Button>
+        )
       ) : (
         <p className="text-muted-foreground">Please log in to add a comment.</p>
       )}

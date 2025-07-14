@@ -151,7 +151,7 @@ function PostsPage() {
                     >
                       <Heart 
                         className={`h-4 w-4 ${
-                          post.is_liked ? 'fill-red-500 text-red-500' : ''
+                          post.is_liked ? 'fill-red-500 text-red-500 stroke-red-500' : ''
                         }`} 
                       />
                       <span className="text-sm font-medium">

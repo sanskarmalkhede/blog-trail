@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
-import express, { Request, Response, NextFunction } from "express";
+import express, { Request, Response } from "express";
 import cors from "cors";
 import pool from "./db";
-import jwt from "jsonwebtoken";
+import { requireAuth, optionalAuth } from "./middleware/auth.middleware";
 
 dotenv.config();
 
@@ -74,35 +74,6 @@ app.use(
   })
 );
 app.use(express.json());
-
-// Middleware
-async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) {
-    res.status(401).json({ error: "No token provided" });
-    return;
-  }
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number; email: string };
-    req.user = decoded;
-    next();
-  } catch (e) {
-    res.status(401).json({ error: "Invalid token" });
-  }
-}
-
-async function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number; email: string };
-      req.user = decoded;
-    } catch (e) {
-      // Invalid token, proceed without user
-    }
-  }
-  next();
-}
 
 // Initialize tables
 async function initDb(): Promise<void> {

@@ -27,6 +27,8 @@ export interface Comment {
   created_at: string;
   author_name: string;
   author_email: string;
+  likes_count: number;
+  is_liked: boolean;
 }
 
 export const blogApi = createApi({
@@ -78,6 +80,14 @@ export const blogApi = createApi({
       query: ({ id }) => ({ url: `/posts/${id}/unlike`, method: "POST" }),
       invalidatesTags: ["Post"],
     }),
+    likeComment: builder.mutation<void, { id: number; postId: number }>({
+      query: ({ id }) => ({ url: `/comments/${id}/like`, method: "POST" }),
+      invalidatesTags: (_, __, { postId }) => [{ type: 'Comment', id: postId }],
+    }),
+    unlikeComment: builder.mutation<void, { id: number; postId: number }>({
+      query: ({ id }) => ({ url: `/comments/${id}/unlike`, method: "POST" }),
+      invalidatesTags: (_, __, { postId }) => [{ type: 'Comment', id: postId }],
+    }),
     getComments: builder.query<Comment[], number>({
       query: (postId) => `/posts/${postId}/comments`,
       providesTags: (_, __, postId) => [{ type: 'Comment', id: postId }],
@@ -106,4 +116,6 @@ export const {
   useGetCommentsQuery,
   useAddCommentMutation,
   useDeleteCommentMutation,
+  useLikeCommentMutation,
+  useUnlikeCommentMutation,
 } = blogApi; 

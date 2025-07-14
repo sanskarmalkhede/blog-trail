@@ -6,6 +6,7 @@ import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import PostsPage from "./pages/PostsPage";
 import CreatePostPage from "./pages/CreatePostPage";
+import EditPostPage from "./pages/EditPostPage";
 import { useAppSelector, useAppDispatch } from "./hooks/useTypedHooks";
 import { logout } from "./store/authSlice";
 import { Moon, Sun, PenTool, LogOut, User } from "lucide-react";
@@ -100,6 +101,10 @@ function AppContent() {
           <Route
             path="/create"
             element={auth.user ? <CreatePostPage /> : <Navigate to="/login" />}
+          />
+          <Route
+            path="/edit/:id"
+            element={auth.user ? <EditPostPage /> : <Navigate to="/login" />}
           />
           <Route
             path="/login"
