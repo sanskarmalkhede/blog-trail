@@ -43,7 +43,7 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
       await pool.query(
         `INSERT INTO users(id, name, email, password_hash)
          VALUES($1, $2, $3, '')
-         ON CONFLICT (id) DO NOTHING`,
+         ON CONFLICT (id) DO UPDATE SET name = COALESCE(NULLIF(users.name, ''), EXCLUDED.name)`,
         [uid, displayName, payload.email]
       );
     } catch (dbErr) {
