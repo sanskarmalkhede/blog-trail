@@ -1,0 +1,10 @@
+[build]
+  base = "client"
+  publish = "client/dist"
+  command = "npm install --frozen-lockfile && npm run build"
+
+# Redirect all routes to index.html for SPA
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200 
