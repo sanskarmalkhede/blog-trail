@@ -74,7 +74,8 @@ function PostsPage() {
       <div className="space-y-6">
         {posts?.map((post) => {
           const isOwner = post.author_id === auth.user?.id;
-          const authorName = post.profiles?.name || 'Anonymous';
+          const p: any = post;
+          const authorName = p.author_name || p.profiles?.name || 'Anonymous';
           const isExpanded = expandedPosts.has(post.id);
           const shouldTruncate = post.content.length > 300;
           const displayContent = shouldTruncate && !isExpanded 
