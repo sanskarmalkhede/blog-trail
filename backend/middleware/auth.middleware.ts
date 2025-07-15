@@ -38,11 +38,13 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
 
     // Ensure local users table has this user (for foreign key constraints)
     try {
+      const meta = (payload.user_metadata ?? {}) as any;
+      const displayName = meta.name || meta.full_name || (payload.email ? payload.email.split('@')[0] : '');
       await pool.query(
         `INSERT INTO users(id, name, email, password_hash)
          VALUES($1, $2, $3, '')
          ON CONFLICT (id) DO NOTHING`,
-        [uid, payload.user_metadata?.name ?? '', payload.email]
+        [uid, displayName, payload.email]
       );
     } catch (dbErr) {
       console.error('Error ensuring local user:', dbErr);
