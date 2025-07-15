@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
+import pool from '../db';
 
 interface JwtPayload {
   sub: string; // uuid
@@ -15,7 +16,7 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing or malformed Authorization header' });
@@ -34,13 +35,25 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
     // Convert to string to match UUID column type
     const uid = String(payload.sub ?? payload.id);
     req.user = { id: uid, email: payload.email };
+
+    // Ensure local users table has this user (for foreign key constraints)
+    try {
+      await pool.query(
+        `INSERT INTO users(id, name, email, password_hash)
+         VALUES($1, $2, $3, '')
+         ON CONFLICT (id) DO NOTHING`,
+        [uid, payload.user_metadata?.name ?? '', payload.email]
+      );
+    } catch (dbErr) {
+      console.error('Error ensuring local user:', dbErr);
+    }
     next();
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
 
-export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction): void {
+export async function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
