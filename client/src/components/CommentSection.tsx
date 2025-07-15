@@ -102,7 +102,7 @@ export function CommentSection({ postId, postAuthorId }: CommentSectionProps) {
             const isCommentOwner = comment.author_id === auth.user?.id;
             const isPostOwner = postAuthorId === auth.user?.id;
             const canDelete = isCommentOwner || isPostOwner;
-            const authorName = comment.profiles?.name || 'Anonymous';
+            const authorName = (comment as any).author_name || 'Anonymous';
 
             return (
               <div key={comment.id} className="bg-muted/30 rounded-xl p-3">

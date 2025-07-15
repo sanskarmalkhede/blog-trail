@@ -44,7 +44,7 @@ export const blogApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ["Post", "Comment"],
+  tagTypes: ["Post", "Comment", "Auth"],
   endpoints: (builder) => ({
     // Auth
     signup: builder.mutation<{ user: User; token: string }, { name: string; email: string; password: string }>({
