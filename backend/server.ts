@@ -70,7 +70,11 @@ const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 const app = express();
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: [
+      "http://localhost:5173",
+      "https://blogtrailapp.netlify.app",
+      /https:\/\/.*--blogtrailapp.netlify.app$/  // Netlify branch/preview deploys
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
