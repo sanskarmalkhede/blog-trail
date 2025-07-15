@@ -83,8 +83,14 @@ app.use(express.json());
 async function initDb(): Promise<void> {
   const client = await pool.connect();
   try {
+    // Try to create extension; ignore error if permission denied
+    try {
+      await client.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+    } catch (extErr) {
+      console.warn("Could not create uuid-ossp extension (might already exist or insufficient privileges):", (extErr as Error).message);
+    }
+
     await client.query(`
-      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         name TEXT NOT NULL,
