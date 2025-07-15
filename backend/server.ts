@@ -84,16 +84,16 @@ async function initDb(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query(`
-      CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
       CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         name TEXT NOT NULL,
         email TEXT     NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE TABLE IF NOT EXISTS posts (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         title TEXT     NOT NULL,
         content TEXT   NOT NULL,
@@ -102,7 +102,7 @@ async function initDb(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
       CREATE TABLE IF NOT EXISTS comments (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         post_id   UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
         author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         content   TEXT NOT NULL,
@@ -110,7 +110,7 @@ async function initDb(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id);
       CREATE TABLE IF NOT EXISTS likes (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         post_id   UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
         user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ DEFAULT now(),
@@ -118,7 +118,7 @@ async function initDb(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_likes_post_id ON likes(post_id);
       CREATE TABLE IF NOT EXISTS comment_likes (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         comment_id UUID NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ DEFAULT now(),
