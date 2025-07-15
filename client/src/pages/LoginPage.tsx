@@ -2,9 +2,8 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "../components/ui/button";
-import { useLoginMutation } from "../store/api";
-import { useAppDispatch } from "../hooks/useTypedHooks";
-import { setCredentials } from "../store/authSlice";
+import { useAppDispatch, useAppSelector } from "../hooks/useTypedHooks";
+import { signIn, clearError } from "../store/authSlice";
 import { Link } from "react-router-dom";
 import { Mail, Lock, LogIn } from "lucide-react";
 
@@ -19,16 +18,13 @@ function LoginPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema) });
-  const [login, { isLoading, error }] = useLoginMutation();
+  
   const dispatch = useAppDispatch();
+  const { loading, error } = useAppSelector((state) => state.auth);
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
-    try {
-      const res = await login(data).unwrap();
-      dispatch(setCredentials(res));
-    } catch (e) {
-      // Error is handled by RTK Query
-    }
+    dispatch(clearError());
+    dispatch(signIn(data));
   };
 
   return (
@@ -48,7 +44,7 @@ function LoginPage() {
         <div className="bg-card rounded-2xl p-8 elevation-3 animate-fade-in">
           {error && (
             <div className="bg-destructive/10 border border-destructive/20 text-destructive text-sm p-4 rounded-xl mb-6 elevation-1">
-              Invalid email or password. Please try again.
+              {error}
             </div>
           )}
 
@@ -97,10 +93,10 @@ function LoginPage() {
 
             {/* Submit Button */}
             <Button 
-              disabled={isLoading} 
+              disabled={loading} 
               className="w-full py-3 rounded-xl flex items-center justify-center gap-2 btn-material elevation-2 hover:elevation-3"
             >
-              {isLoading ? (
+              {loading ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
               ) : (
                 <>

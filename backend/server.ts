@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js'
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
 import cors from "cors";
@@ -74,6 +75,7 @@ app.use(
   })
 );
 app.use(express.json());
+
 
 // Initialize tables
 async function initDb(): Promise<void> {

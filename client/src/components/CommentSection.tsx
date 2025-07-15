@@ -7,8 +7,8 @@ import { Trash2, Heart } from "lucide-react";
 import { useLikeCommentMutation, useUnlikeCommentMutation } from "../store/api";
 
 type CommentSectionProps = {
-  postId: number;
-  postAuthorId: number;
+  postId: string;
+  postAuthorId: string;
 };
 
 export function CommentSection({ postId, postAuthorId }: CommentSectionProps) {
@@ -27,85 +27,140 @@ export function CommentSection({ postId, postAuthorId }: CommentSectionProps) {
     try {
       await addComment({ postId, content: newComment });
       setNewComment("");
+      setShowInput(false);
     } catch (error) {
-      console.error("Failed to add comment:", error);
+      console.error('Failed to add comment:', error);
     }
   };
 
-  if (isLoading) return <div>Loading comments...</div>;
+  if (isLoading) {
+    return (
+      <div className="mt-4 pt-4 border-t">
+        <div className="animate-pulse">
+          <div className="h-4 bg-muted rounded w-20 mb-3"></div>
+          <div className="space-y-3">
+            <div className="h-12 bg-muted rounded"></div>
+            <div className="h-12 bg-muted rounded"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="mt-6">
-      <h4 className="font-semibold mb-4">Comments ({comments?.length || 0})</h4>
-      <div className="space-y-4 mb-6">
-        {comments && comments.length > 0 ? (
-          comments.map((comment: Comment) => (
-            <div key={comment.id} className="border-b pb-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium">{comment.author_name}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {new Date(comment.created_at).toLocaleString()}
-                    </span>
+    <div className="mt-4 pt-4 border-t">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="font-medium text-sm">
+          Comments {comments && comments.length > 0 && `(${comments.length})`}
+        </h4>
+        {auth.user && !showInput && (
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setShowInput(true)}
+            className="btn-material rounded-xl"
+          >
+            Write a comment
+          </Button>
+        )}
+      </div>
+
+      {/* Add Comment Form */}
+      {auth.user && showInput && (
+        <form onSubmit={handleSubmit} className="mb-4">
+          <Textarea
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+            placeholder="Write your comment..."
+            className="mb-2 resize-none rounded-xl"
+            rows={3}
+          />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" className="btn-material rounded-xl">
+              Post Comment
+            </Button>
+            <Button 
+              type="button" 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => {
+                setShowInput(false);
+                setNewComment("");
+              }}
+              className="btn-material rounded-xl"
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* Comments List */}
+      {comments && comments.length > 0 ? (
+        <div className="space-y-3">
+          {comments.map((comment: Comment) => {
+            const isCommentOwner = comment.author_id === auth.user?.id;
+            const isPostOwner = postAuthorId === auth.user?.id;
+            const canDelete = isCommentOwner || isPostOwner;
+            const authorName = comment.profiles?.name || 'Anonymous';
+
+            return (
+              <div key={comment.id} className="bg-muted/30 rounded-xl p-3">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="font-medium text-sm">{authorName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(comment.created_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
                   </div>
-                  <p className="text-foreground">{comment.content}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {auth.user && (
+                  {canDelete && (
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="sm"
+                      onClick={() => deleteComment({ id: comment.id, postId })}
+                      className="text-destructive hover:text-destructive p-1 h-auto"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-sm mb-2 whitespace-pre-wrap">{comment.content}</p>
+                
+                {/* Comment Like Button */}
+                {auth.user && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() =>
                         comment.is_liked
                           ? unlikeComment({ id: comment.id, postId })
                           : likeComment({ id: comment.id, postId })
                       }
-                      className="rounded-full hover:text-red-500"
+                      className="flex items-center gap-1 hover:text-red-500 p-1 h-auto"
                     >
-                      <Heart
-                        className={`h-4 w-4 ${comment.is_liked ? "fill-red-500 text-red-500 stroke-red-500" : ""}`}
+                      <Heart 
+                        className={`h-3 w-3 ${
+                          comment.is_liked ? 'fill-red-500 text-red-500 stroke-red-500' : ''
+                        }`} 
                       />
-                      <span className="ml-1 text-sm">{comment.likes_count}</span>
+                      <span className="text-xs">
+                        {comment.likes_count || 0}
+                      </span>
                     </Button>
-                  )}
-                  {(comment.author_id === auth.user?.id || postAuthorId === auth.user?.id) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteComment({ id: comment.id, postId })}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
-            </div>
-          ))
-        ) : (
-          <p className="text-muted-foreground">No comments yet. Be the first to comment!</p>
-        )}
-      </div>
-      {auth.user ? (
-        showInput ? (
-          <form onSubmit={handleSubmit} className="space-y-2">
-            <Textarea
-              placeholder="Add a comment..."
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              className="min-h-[80px]"
-            />
-            <div className="flex gap-2">
-              <Button type="submit" disabled={!newComment.trim()}>Post Comment</Button>
-              <Button type="button" variant="ghost" onClick={() => setShowInput(false)}>Cancel</Button>
-            </div>
-          </form>
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => setShowInput(true)}>Write a comment</Button>
-        )
+            );
+          })}
+        </div>
       ) : (
-        <p className="text-muted-foreground">Please log in to add a comment.</p>
+        <p className="text-muted-foreground text-sm">No comments yet. Be the first to comment!</p>
       )}
     </div>
   );

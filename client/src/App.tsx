@@ -8,9 +8,10 @@ import PostsPage from "./pages/PostsPage";
 import CreatePostPage from "./pages/CreatePostPage";
 import EditPostPage from "./pages/EditPostPage";
 import { useAppSelector, useAppDispatch } from "./hooks/useTypedHooks";
-import { logout } from "./store/authSlice";
+import { signOut, setSession, checkSession } from "./store/authSlice";
 import { Moon, Sun, PenTool, LogOut, User } from "lucide-react";
 import { useState, useEffect } from "react";
+import { supabase } from "./lib/supabase";
 
 function AppContent() {
   const auth = useAppSelector((state) => state.auth);
@@ -23,6 +24,24 @@ function AppContent() {
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  // Check for existing session on app load
+  useEffect(() => {
+    dispatch(checkSession());
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_, session) => {
+        dispatch(setSession(session));
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, [dispatch]);
+
+  const handleLogout = () => {
+    dispatch(signOut());
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -59,7 +78,9 @@ function AppContent() {
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-muted/50">
                     <User className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{auth.user.name}</span>
+                    <span className="text-sm font-medium">
+                      {auth.user.user_metadata?.name || auth.user.email}
+                    </span>
                   </div>
                   
                   <Button variant="default" size="sm" asChild className="rounded-full btn-material elevation-1">
@@ -72,7 +93,7 @@ function AppContent() {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => dispatch(logout())}
+                    onClick={handleLogout}
                     className="rounded-full flex items-center gap-2 btn-material"
                   >
                     <LogOut className="h-4 w-4" />

@@ -7,8 +7,9 @@ import {
 } from "../store/api";
 import { useAppSelector } from "../hooks/useTypedHooks";
 import { Link } from "react-router-dom";
-import { Heart, Edit, Trash2, Calendar, User, Image } from "lucide-react";
+import { Heart, Edit, Trash2, Calendar, User, Image, ChevronDown, ChevronUp } from "lucide-react";
 import { CommentSection } from "../components/CommentSection";
+import { useState } from "react";
 
 function PostsPage() {
   const { data: posts, isLoading } = useGetPostsQuery();
@@ -16,6 +17,21 @@ function PostsPage() {
   const [unlike] = useUnlikePostMutation();
   const [deletePost] = useDeletePostMutation();
   const auth = useAppSelector((state) => state.auth);
+  
+  // State to track which posts are expanded
+  const [expandedPosts, setExpandedPosts] = useState<Set<string>>(new Set());
+
+  const togglePostExpansion = (postId: string) => {
+    setExpandedPosts(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(postId)) {
+        newSet.delete(postId);
+      } else {
+        newSet.add(postId);
+      }
+      return newSet;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -56,15 +72,20 @@ function PostsPage() {
 
       {/* Posts Grid */}
       <div className="space-y-6">
-        {posts.map((post: any) => {
+        {posts?.map((post) => {
           const isOwner = post.author_id === auth.user?.id;
-          // const hasLiked = false; // You might want to track this in the backend
+          const authorName = post.profiles?.name || 'Anonymous';
+          const isExpanded = expandedPosts.has(post.id);
+          const shouldTruncate = post.content.length > 300;
+          const displayContent = shouldTruncate && !isExpanded 
+            ? `${post.content.substring(0, 300)}...` 
+            : post.content;
           
           return (
-                         <article 
-               key={post.id} 
-               className="bg-card rounded-2xl p-6 elevation-1 hover:elevation-2 transition-all duration-300 animate-fade-in"
-             >
+            <article 
+              key={post.id} 
+              className="bg-card rounded-2xl p-6 elevation-1 hover:elevation-2 transition-all duration-300 animate-fade-in"
+            >
               {/* Post Header */}
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -73,7 +94,7 @@ function PostsPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground">
-                      {post.author_name}
+                      {authorName}
                     </h3>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-3 w-3" />
@@ -113,12 +134,33 @@ function PostsPage() {
                 </h2>
                 <div className="prose prose-sm max-w-none text-muted-foreground">
                   <p className="whitespace-pre-wrap leading-relaxed">
-                    {post.content.length > 300 
-                      ? `${post.content.substring(0, 300)}...` 
-                      : post.content
-                    }
+                    {displayContent}
                   </p>
                 </div>
+                
+                {/* Read More/Less Button - placed right after content */}
+                {shouldTruncate && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => togglePostExpansion(post.id)}
+                    className="mt-2 text-primary hover:text-primary/80 btn-material rounded-xl p-1 h-auto"
+                  >
+                    <span className="flex items-center gap-1 text-sm">
+                      {isExpanded ? (
+                        <>
+                          Read Less
+                          <ChevronUp className="h-3 w-3" />
+                        </>
+                      ) : (
+                        <>
+                          Read More
+                          <ChevronDown className="h-3 w-3" />
+                        </>
+                      )}
+                    </span>
+                  </Button>
+                )}
               </div>
 
               {/* Post Image */}
@@ -160,19 +202,13 @@ function PostsPage() {
                     </Button>
                   )}
                   
-                  {!auth.user && post.likes_count > 0 && (
+                  {!auth.user && (post.likes_count || 0) > 0 && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Heart className="h-4 w-4" />
-                      <span className="text-sm">{post.likes_count}</span>
+                      <span className="text-sm">{post.likes_count || 0}</span>
                     </div>
                   )}
                 </div>
-
-                {post.content.length > 300 && (
-                  <Button variant="ghost" size="sm" className="btn-material rounded-xl">
-                    Read More
-                  </Button>
-                )}
               </div>
 
               <CommentSection postId={post.id} postAuthorId={post.author_id} />

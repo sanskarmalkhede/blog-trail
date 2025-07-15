@@ -1,14 +1,13 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useGetPostsQuery, useUpdatePostMutation } from "../store/api";
+import { useGetPostsQuery, useUpdatePostMutation, type Post } from "../store/api";
 import { useState, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 
 export default function EditPostPage() {
   const { id } = useParams<{ id: string }>();
-  const postId = Number(id);
   const { data: posts } = useGetPostsQuery();
-  const post = posts?.find((p) => p.id === postId);
+  const post = posts?.find((p: Post) => p.id === id);
   const [updatePost] = useUpdatePostMutation();
   const navigate = useNavigate();
 
@@ -30,8 +29,15 @@ export default function EditPostPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!id) return;
+    
     try {
-      await updatePost({ id: postId, data: { title, content, image_url: imageUrl } }).unwrap();
+      await updatePost({ 
+        id, 
+        title, 
+        content, 
+        image_url: imageUrl || undefined 
+      }).unwrap();
       navigate("/");
     } catch (err) {
       console.error(err);

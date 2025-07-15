@@ -2,9 +2,8 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "../components/ui/button";
-import { useSignupMutation } from "../store/api";
-import { useAppDispatch } from "../hooks/useTypedHooks";
-import { setCredentials } from "../store/authSlice";
+import { useAppDispatch, useAppSelector } from "../hooks/useTypedHooks";
+import { signUp, clearError } from "../store/authSlice";
 import { Link } from "react-router-dom";
 import { Mail, Lock, User, UserPlus } from "lucide-react";
 
@@ -20,16 +19,13 @@ function SignupPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema) });
-  const [signup, { isLoading, error }] = useSignupMutation();
+  
   const dispatch = useAppDispatch();
+  const { loading, error } = useAppSelector((state) => state.auth);
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
-    try {
-      const res = await signup(data).unwrap();
-      dispatch(setCredentials(res));
-    } catch (e) {
-      // Error is handled by RTK Query
-    }
+    dispatch(clearError());
+    dispatch(signUp(data));
   };
 
   return (
@@ -41,7 +37,7 @@ function SignupPage() {
             Join BlogTrail
           </h1>
           <p className="text-muted-foreground mt-2">
-            Create your account to start blogging
+            Create your account to start sharing
           </p>
         </div>
 
@@ -49,7 +45,7 @@ function SignupPage() {
         <div className="bg-card rounded-2xl p-8 elevation-3 animate-fade-in">
           {error && (
             <div className="bg-destructive/10 border border-destructive/20 text-destructive text-sm p-4 rounded-xl mb-6 elevation-1">
-              Failed to create account. Please try again.
+              {error}
             </div>
           )}
 
@@ -119,10 +115,10 @@ function SignupPage() {
 
             {/* Submit Button */}
             <Button 
-              disabled={isLoading} 
+              disabled={loading} 
               className="w-full py-3 rounded-xl flex items-center justify-center gap-2 btn-material elevation-2 hover:elevation-3"
             >
-              {isLoading ? (
+              {loading ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
               ) : (
                 <>
