@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
 
 interface JwtPayload {
-  sub: number;
+  sub: string; // uuid
   email: string;
   iat?: number;
   exp?: number;
@@ -10,7 +10,7 @@ interface JwtPayload {
 
 interface AuthenticatedRequest extends Request {
   user?: {
-    id: number;
+    id: string; // uuid string
     email: string;
   };
 }
@@ -31,7 +31,9 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
     }
 
     const payload = jwt.verify(token, secret) as any;
-    req.user = { id: payload.sub ?? payload.id, email: payload.email };
+    // Convert to string to match UUID column type
+    const uid = String(payload.sub ?? payload.id);
+    req.user = { id: uid, email: payload.email };
     next();
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired token' });
@@ -46,7 +48,8 @@ export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: Ne
       const secret = process.env.JWT_SECRET;
       if (secret) {
         const payload = jwt.verify(token, secret) as any;
-        req.user = { id: payload.sub ?? payload.id, email: payload.email };
+        const uid = String(payload.sub ?? payload.id);
+        req.user = { id: uid, email: payload.email };
       }
     } catch {
       // ignore invalid token

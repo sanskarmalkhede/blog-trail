@@ -12,7 +12,7 @@ declare global {
   namespace Express {
     interface Request {
       user?: {
-        id: number;
+        id: string;
         email: string;
       };
     }
@@ -21,7 +21,7 @@ declare global {
 
 // Type definitions
 interface User {
-  id: number;
+  id: string;
   name: string;
   email: string;
   password_hash: string;
@@ -29,8 +29,8 @@ interface User {
 }
 
 interface Post {
-  id: number;
-  author_id: number;
+  id: string;
+  author_id: string;
   title: string;
   content: string;
   image_url?: string;
@@ -44,26 +44,28 @@ interface PostWithAuthor extends Post {
 }
 
 interface Comment {
-  id: number;
-  post_id: number;
-  author_id: number;
+  id: string;
+  post_id: string;
+  author_id: string;
   content: string;
   created_at: string;
 }
 
 interface Like {
-  id: number;
-  post_id: number;
-  user_id: number;
+  id: string;
+  post_id: string;
+  user_id: string;
   created_at: string;
 }
 
 interface CommentLike {
-  id: number;
-  comment_id: number;
-  user_id: number;
+  id: string;
+  comment_id: string;
+  user_id: string;
   created_at: string;
 }
+
+const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
 const app = express();
 app.use(
@@ -82,16 +84,17 @@ async function initDb(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query(`
+      CREATE EXTENSION IF NOT EXISTS "pgcrypto";
       CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL,
         email TEXT     NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE TABLE IF NOT EXISTS posts (
-        id SERIAL PRIMARY KEY,
-        author_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         title TEXT     NOT NULL,
         content TEXT   NOT NULL,
         image_url TEXT,
@@ -99,25 +102,25 @@ async function initDb(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
       CREATE TABLE IF NOT EXISTS comments (
-        id SERIAL PRIMARY KEY,
-        post_id   INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-        author_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        post_id   UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         content   TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id);
       CREATE TABLE IF NOT EXISTS likes (
-        id SERIAL PRIMARY KEY,
-        post_id   INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-        user_id   INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        post_id   UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ DEFAULT now(),
         UNIQUE (post_id, user_id)
       );
       CREATE INDEX IF NOT EXISTS idx_likes_post_id ON likes(post_id);
       CREATE TABLE IF NOT EXISTS comment_likes (
-        id SERIAL PRIMARY KEY,
-        comment_id INT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
-        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        comment_id UUID NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ DEFAULT now(),
         UNIQUE (comment_id, user_id)
       );
@@ -174,14 +177,14 @@ app.get(
 
 // Posts with author info
 app.get("/posts", optionalAuth, async (req: Request, res: Response): Promise<void> => {
-  const userId = req.user?.id ?? 0;
+  const userId = req.user?.id ?? NULL_UUID;
   try {
     const { rows } = await pool.query<PostWithAuthor & {is_liked: boolean}>(
       `
       SELECT p.*, u.name as author_name, u.email as author_email,
              (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) as likes_count,
-             CASE WHEN $1 = 0 THEN false
-                  ELSE EXISTS (SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.user_id = $1)
+             CASE WHEN $1 = '${NULL_UUID}' THEN false
+                  ELSE EXISTS (SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.user_id = $1::uuid)
              END as is_liked
       FROM posts p
       JOIN users u ON p.author_id = u.id
@@ -226,7 +229,7 @@ app.put(
 
     try {
       // 1) Fetch the post's author
-      const { rows } = await pool.query<{ author_id: number }>(
+      const { rows } = await pool.query<{ author_id: string }>(
         "SELECT author_id FROM posts WHERE id = $1",
         [postId]
       );
@@ -267,7 +270,7 @@ app.delete(
 
     try {
       // 1) Fetch the post's author
-      const { rows } = await pool.query<{ author_id: number }>(
+      const { rows } = await pool.query<{ author_id: string }>(
         "SELECT author_id FROM posts WHERE id = $1",
         [postId]
       );
@@ -316,14 +319,14 @@ app.get(
   optionalAuth,
   async (req: Request, res: Response): Promise<void> => {
     const post_id = req.params.id;
-    const userId = req.user?.id ?? 0;
+    const userId = req.user?.id ?? NULL_UUID;
     try {
       const { rows } = await pool.query<Comment & {author_name: string, author_email: string, likes_count: number, is_liked: boolean}>(
         `
         SELECT c.*, u.name as author_name, u.email as author_email,
                (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) as likes_count,
-               CASE WHEN $2 = 0 THEN false
-                    ELSE EXISTS (SELECT 1 FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = $2)
+               CASE WHEN $2 = '${NULL_UUID}' THEN false
+                    ELSE EXISTS (SELECT 1 FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = $2::uuid)
                END as is_liked
         FROM comments c
         JOIN users u ON c.author_id = u.id
@@ -347,7 +350,7 @@ app.delete(
 
     try {
       // Check ownership
-      const { rows } = await pool.query<{ comment_author: number, post_author: number }>(
+      const { rows } = await pool.query<{ comment_author: string, post_author: string }>(
         `
         SELECT c.author_id as comment_author, p.author_id as post_author
         FROM comments c
